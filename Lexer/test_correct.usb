@@ -1,0 +1,59 @@
+wala ugat() {
+    bilang x = 10;
+    bilang y = 20, z;
+    lutang pi = 3.14;
+    kwerdas msg = "Hello USBong";
+    bulyan flag = tama;
+    
+    z = x + y * 2;
+    x = (z - 5) / 3;
+    
+    kung (x > 5) {
+        ani(x);
+        y = y + 1;
+    } kundi {
+        ani(y);
+        y = y - 1;
+    }
+    
+    kung (y == 20) {
+        z = 100;
+    } kundiman (y > 15) {
+        z = 50;
+    } kundi {
+        z = 0;
+    }
+    
+    bilang i = 0;
+    para (bilang counter = 0; counter < 10; counter = counter + 1) {
+        i = i + counter;
+        ani(i);
+    }
+    
+    habang (x < 100) {
+        x = x + 10;
+        ani(x);
+    }
+    
+    gawin {
+        y = y - 1;
+        ani(y);
+    } habang (y > 0);
+    
+    bilang a, b, c = 5;
+    tanim(a, b);
+    c = a + b;
+    ani(c);
+    
+    kung (a >= b) {
+        ani(a);
+    }
+    
+    kung (a <= b) {
+        ani(b);
+    }
+    
+    kung (a != b) {
+        ani("Not equal");
+    }
+}

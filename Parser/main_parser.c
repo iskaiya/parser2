@@ -35,7 +35,7 @@ int main() {
     bool success = parse_program(parser);
     
     if (success) {
-        printf("PARSING SUCCESSFUL! No syntax errors found. ✓✓✓\n");
+        printf("PARSING SUCCESSFUL! No syntax errors found.\n");
         
         // Generate parse trees
         printf("Generating parse trees...\n\n");
@@ -60,19 +60,13 @@ int main() {
             printf("%2d. %s\n", i+1, parser->errors[i]);
         }
 
-        // Generate parse trees
-        printf("Generating parse trees...\n\n");
+       printf("\nParse tree generated despite errors (for debugging)\n");
+        printf("  Check parse_tree_visual.txt to see where parsing failed\n");
         
-        // Visual tree
+        // Still generate parse trees for debugging
         write_parse_tree_to_file("parse_tree_visual.txt", parser->parse_tree, true);
-        
-        // Parenthesized notation
         write_parse_tree_to_file("parse_tree_parenthesized.txt", parser->parse_tree, false);
-        
-        printf("\nOutput files created:\n");
-        printf("  1. parse_tree_visual.txt         - Tree diagram format\n");
-        printf("  2. parse_tree_parenthesized.txt  - Parenthesized notation\n\n");
-        
+
     }
     
     printf("PDA Operation Complete\n");

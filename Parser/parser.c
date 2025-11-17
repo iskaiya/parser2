@@ -239,10 +239,23 @@ bool parse_program(Parser* p) {
         }
     } else {
         parser_error(p, "Expected main function or class definition");
+        // ERROR RECOVERY: Try to find start of a valid construct
+        const char* sync[] = {"R_BILANG", "R_VOID", "R_WALA", "R_PANGKAT"};
+        synchronize(p, sync, 4);
+        if (peek(p)) {
+            // Try parsing again after recovery
+            if (check_token(p, "R_BILANG") || check_token(p, "R_VOID") || 
+                check_token(p, "R_WALA")) {
+                add_child(node, parse_main_function(p));
+            } else if (check_token(p, "R_PANGKAT")) {
+                add_child(node, parse_class_definition(p));
+            }
+        }
     }
     
     p->parse_tree = node;
     printf("Program parsing complete!\n");
+    printf("Total errors found: %d\n", p->error_count);
     return (p->error_count == 0);
 }
 
@@ -254,6 +267,14 @@ ParseTreeNode* parse_main_function(Parser* p) {
     add_child(node, match(p, "D_LPAREN"));
     add_child(node, parse_parameter_list(p));
     add_child(node, match(p, "D_RPAREN"));
+    
+    // ERROR RECOVERY: Ensure we have opening brace for function body
+    if (peek(p) && !check_token(p, "D_LBRACE")) {
+        parser_error(p, "Expected '{' to start function body");
+        const char* sync[] = {"D_LBRACE"};
+        synchronize(p, sync, 1);
+    }
+    
     add_child(node, parse_function_body(p));
     printf("  [PDA POP] Main Function complete\n");
     return node;
@@ -299,9 +320,9 @@ ParseTreeNode* parse_statement_list(Parser* p) {
     
     if (peek(p) && (check_token(p, "R_BILANG") || check_token(p, "R_LUTANG") ||
                      check_token(p, "R_BULYAN") || check_token(p, "R_KWERDAS") ||
-                     check_token(p, "L_IDENTIFIER") || check_token(p, "R_KUNG") ||
-                     check_token(p, "R_PARA") || check_token(p, "R_HABANG") ||
-                     check_token(p, "R_GAWIN") || check_token(p, "K_ANI") ||
+                     check_token(p, "L_IDENTIFIER") || check_token(p, "K_KUNG") ||
+                     check_token(p, "K_PARA") || check_token(p, "K_HABANG") ||
+                     check_token(p, "K_GAWIN") || check_token(p, "K_ANI") ||
                      check_token(p, "K_TANIM"))) {
         add_child(node, parse_statement(p));
         add_child(node, parse_statement_list(p));
@@ -314,6 +335,12 @@ ParseTreeNode* parse_statement_list(Parser* p) {
 
 ParseTreeNode* parse_statement(Parser* p) {
     ParseTreeNode* node = create_node("Statement", NULL);
+    
+    // ERROR RECOVERY: Check if we have a valid statement starter
+    if (!peek(p)) {
+        parser_error(p, "Unexpected end of file in statement");
+        return node;
+    }
     
     if (check_token(p, "R_BILANG") || check_token(p, "R_LUTANG") ||
         check_token(p, "R_BULYAN") || check_token(p, "R_KWERDAS")) {
@@ -330,8 +357,10 @@ ParseTreeNode* parse_statement(Parser* p) {
     } else if (check_token(p, "K_TANIM")) {
         add_child(node, parse_scan(p));
     } else {
-        parser_error(p, "Unexpected statement");
-        if (peek(p)) advance(p);
+        parser_error(p, "Invalid statement - expected declaration, assignment, or control structure");
+        // ERROR RECOVERY: Skip to end of statement
+        skip_to_statement_end(p);
+        add_child(node, create_node("ERROR", "invalid_statement"));
     }
     
     return node;
@@ -344,6 +373,15 @@ ParseTreeNode* parse_declaration(Parser* p) {
     ParseTreeNode* node = create_node("Declaration", NULL);
     add_child(node, parse_data_type(p));
     add_child(node, parse_identifier_list(p));
+    
+    // ERROR RECOVERY: Check for semicolon
+    if (peek(p) && !check_token(p, "D_SEMICOLON")) {
+        parser_error(p, "Missing semicolon at end of declaration");
+        // Look for semicolon nearby
+        const char* sync[] = {"D_SEMICOLON"};
+        synchronize(p, sync, 1);
+    }
+    
     add_child(node, match(p, "D_SEMICOLON"));
     printf("    [PDA POP] Declaration complete\n");
     return node;
@@ -356,7 +394,9 @@ ParseTreeNode* parse_data_type(Parser* p) {
         add_child(node, create_node(p->current_token->type, p->current_token->lexeme));
         advance(p);
     } else {
-        parser_error(p, "Expected data type");
+        parser_error(p, "Expected data type (R_BILANG, R_LUTANG, R_BULYAN, or R_KWERDAS)");
+        // ERROR RECOVERY: Create error node and try to continue
+        add_child(node, create_node("ERROR", "missing_datatype"));
     }
     return node;
 }
@@ -364,6 +404,13 @@ ParseTreeNode* parse_data_type(Parser* p) {
 ParseTreeNode* parse_identifier_list(Parser* p) {
     ParseTreeNode* node = create_node("IdentifierList", NULL);
     add_child(node, match(p, "L_IDENTIFIER"));
+    
+    // Check for optional initialization: = <Expression>
+    if (peek(p) && check_token(p, "O_ASSIGN")) {
+        add_child(node, match(p, "O_ASSIGN"));
+        add_child(node, parse_expression(p));
+    }
+    
     add_child(node, parse_identifier_tail(p));
     return node;
 }
@@ -373,6 +420,13 @@ ParseTreeNode* parse_identifier_tail(Parser* p) {
     if (peek(p) && check_token(p, "D_COMMA")) {
         add_child(node, match(p, "D_COMMA"));
         add_child(node, match(p, "L_IDENTIFIER"));
+        
+        // Check for optional initialization for this identifier too
+        if (peek(p) && check_token(p, "O_ASSIGN")) {
+            add_child(node, match(p, "O_ASSIGN"));
+            add_child(node, parse_expression(p));
+        }
+        
         add_child(node, parse_identifier_tail(p));
     } else {
         add_child(node, create_node("ε", "empty"));
@@ -386,8 +440,24 @@ ParseTreeNode* parse_assignment(Parser* p) {
     printf("    [PDA PUSH] Parsing Assignment...\n");
     ParseTreeNode* node = create_node("Assignment", NULL);
     add_child(node, match(p, "L_IDENTIFIER"));
+    
+    // ERROR RECOVERY: Check for assignment operator
+    if (peek(p) && !check_token(p, "O_ASSIGN")) {
+        parser_error(p, "Expected '=' in assignment");
+        const char* sync[] = {"O_ASSIGN"};
+        synchronize(p, sync, 1);
+    }
+    
     add_child(node, match(p, "O_ASSIGN"));
     add_child(node, parse_expression(p));
+    
+    // ERROR RECOVERY: Check for semicolon
+    if (peek(p) && !check_token(p, "D_SEMICOLON")) {
+        parser_error(p, "Missing semicolon at end of assignment");
+        const char* sync[] = {"D_SEMICOLON"};
+        synchronize(p, sync, 1);
+    }
+    
     add_child(node, match(p, "D_SEMICOLON"));
     printf("    [PDA POP] Assignment complete\n");
     return node;
@@ -435,19 +505,56 @@ ParseTreeNode* parse_term_tail(Parser* p) {
 
 ParseTreeNode* parse_factor(Parser* p) {
     ParseTreeNode* node = create_node("Factor", NULL);
+    
+    // Handle identifiers
     if (peek(p) && check_token(p, "L_IDENTIFIER")) {
         add_child(node, match(p, "L_IDENTIFIER"));
-    } else if (peek(p) && check_token(p, "L_BILANG_LITERAL")) {
+    } 
+    // Handle integer literals
+    else if (peek(p) && check_token(p, "L_BILANG_LITERAL")) {
         add_child(node, match(p, "L_BILANG_LITERAL"));
-    } else if (peek(p) && check_token(p, "D_LPAREN")) {
+    } 
+    // Handle float literals
+    else if (peek(p) && check_token(p, "L_LUTANG_LITERAL")) {
+        add_child(node, match(p, "L_LUTANG_LITERAL"));
+    }
+    // Handle string literals
+    else if (peek(p) && check_token(p, "L_KWERDAS_LITERAL")) {
+        add_child(node, match(p, "L_KWERDAS_LITERAL"));
+    }
+    // Handle boolean literals (tama/mali)
+    else if (peek(p) && (check_token(p, "R_TAMA") || check_token(p, "R_MALI"))) {
+        add_child(node, create_node(p->current_token->type, p->current_token->lexeme));
+        advance(p);
+    }
+    // Handle constants (pi)
+    else if (peek(p) && (check_token(p, "R_PI") || check_token(p, "R_E_NUM") || 
+                        check_token(p, "R_Kiss") || check_token(p, "R_SAMPLE_CONST_STRING" ))) {
+        add_child(node, create_node(p->current_token->type, p->current_token->lexeme));
+    }
+    // Handle parenthesized expressions
+    else if (peek(p) && check_token(p, "D_LPAREN")) {
         add_child(node, match(p, "D_LPAREN"));
         add_child(node, parse_expression(p));
+        
+        // ERROR RECOVERY: Check for closing parenthesis
+        if (peek(p) && !check_token(p, "D_RPAREN")) {
+            parser_error(p, "Missing closing parenthesis ')' in expression");
+            const char* sync[] = {"D_RPAREN"};
+            synchronize(p, sync, 1);
+        }
+        
         add_child(node, match(p, "D_RPAREN"));
-    } else {
-        parser_error(p, "Expected identifier, literal, or parenthesized expression");
+    } 
+    else {
+        parser_error(p, "Expected identifier, literal, constant, or '(' in expression");
+        // ERROR RECOVERY: Create error node
+        add_child(node, create_node("ERROR", "invalid_factor"));
+        if (peek(p)) advance(p); // Skip problematic token
     }
     return node;
 }
+
 
 // ============ CONDITIONALS ============
 
@@ -457,9 +564,32 @@ ParseTreeNode* parse_conditional(Parser* p) {
     add_child(node, match(p, "K_KUNG"));
     add_child(node, match(p, "D_LPAREN"));
     add_child(node, parse_boolean_expression(p));
+    
+    // ERROR RECOVERY: Check for closing parenthesis
+    if (peek(p) && !check_token(p, "D_RPAREN")) {
+        parser_error(p, "Missing ')' after condition");
+        const char* sync[] = {"D_RPAREN", "D_LBRACE"};
+        synchronize(p, sync, 2);
+    }
+    
     add_child(node, match(p, "D_RPAREN"));
+    
+    // ERROR RECOVERY: Check for opening brace
+    if (peek(p) && !check_token(p, "D_LBRACE")) {
+        parser_error(p, "Missing '{' after condition");
+        const char* sync[] = {"D_LBRACE"};
+        synchronize(p, sync, 1);
+    }
+    
     add_child(node, match(p, "D_LBRACE"));
     add_child(node, parse_statement_list(p));
+    
+    // ERROR RECOVERY: Check for closing brace
+    if (peek(p) && !check_token(p, "D_RBRACE")) {
+        parser_error(p, "Missing '}' at end of if block");
+        skip_to_closing_brace(p);
+    }
+    
     add_child(node, match(p, "D_RBRACE"));
     add_child(node, parse_conditional_tail(p));
     printf("    [PDA POP] Conditional complete\n");
@@ -500,7 +630,7 @@ ParseTreeNode* parse_relop(Parser* p) {
     ParseTreeNode* node = create_node("RelOp", NULL);
     if (peek(p) && (check_token(p, "O_EQUAL") || check_token(p, "O_NOT_EQUAL") ||
                      check_token(p, "O_GREATER") || check_token(p, "O_LESS") ||
-                     check_token(p, "O_GREATER_EQUAL") || check_token(p, "O_LESS_EQUAL"))) {
+                     check_token(p, "O_GREATER_EQ") || check_token(p, "O_LESS_EQ"))) {
         add_child(node, create_node(p->current_token->type, p->current_token->lexeme));
         advance(p);
     } else {
@@ -564,9 +694,32 @@ ParseTreeNode* parse_while_loop(Parser* p) {
     add_child(node, match(p, "K_HABANG"));
     add_child(node, match(p, "D_LPAREN"));
     add_child(node, parse_boolean_expression(p));
+    
+    // ERROR RECOVERY: Check for closing parenthesis
+    if (peek(p) && !check_token(p, "D_RPAREN")) {
+        parser_error(p, "Missing ')' after while condition");
+        const char* sync[] = {"D_RPAREN", "D_LBRACE"};
+        synchronize(p, sync, 2);
+    }
+    
     add_child(node, match(p, "D_RPAREN"));
+    
+    // ERROR RECOVERY: Check for loop body
+    if (peek(p) && !check_token(p, "D_LBRACE")) {
+        parser_error(p, "Missing '{' for while loop body");
+        const char* sync[] = {"D_LBRACE"};
+        synchronize(p, sync, 1);
+    }
+    
     add_child(node, match(p, "D_LBRACE"));
     add_child(node, parse_statement_list(p));
+    
+    // ERROR RECOVERY: Check for closing brace
+    if (peek(p) && !check_token(p, "D_RBRACE")) {
+        parser_error(p, "Missing '}' at end of while loop");
+        skip_to_closing_brace(p);
+    }
+    
     add_child(node, match(p, "D_RBRACE"));
     printf("    [PDA POP] While Loop complete\n");
     return node;
@@ -579,7 +732,7 @@ ParseTreeNode* parse_do_while_loop(Parser* p) {
     add_child(node, match(p, "D_LBRACE"));
     add_child(node, parse_statement_list(p));
     add_child(node, match(p, "D_RBRACE"));
-    add_child(node, match(p, "R_HABANG"));
+    add_child(node, match(p, "K_HABANG"));
     add_child(node, match(p, "D_LPAREN"));
     add_child(node, parse_boolean_expression(p));
     add_child(node, match(p, "D_RPAREN"));
@@ -639,7 +792,7 @@ ParseTreeNode* parse_scan_args(Parser* p) {
 ParseTreeNode* parse_class_definition(Parser* p) {
     printf("  [PDA PUSH] Parsing Class Definition...\n");
     ParseTreeNode* node = create_node("ClassDefinition", NULL);
-    add_child(node, match(p, "K_PANGKAT"));
+    add_child(node, match(p, "R_PANGKAT"));
     add_child(node, match(p, "L_IDENTIFIER"));
     add_child(node, match(p, "D_LBRACE"));
     add_child(node, match(p, "D_RBRACE"));

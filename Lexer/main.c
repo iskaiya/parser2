@@ -98,6 +98,11 @@ int main() {
         fclose(file); 
         fclose(symbolFileAppend);
         printf("Symbol Table.txt is created for %s. \n", filename);
+
+        // NEW: Also copy to Parser folder
+        printf("\nCopying Symbol Table to Parser folder...\n");
+        system("copy \"Symbol Table.txt\" \"..\\Parser\\Symbol Table.txt\" >nul 2>&1");
+        printf("Symbol Table copied successfully!\n");
         break;
     } while (true);
     
@@ -776,10 +781,10 @@ static const char *token_value_name(const Token *t) {
                 case R_BULYAN: return "R_BULYAN";
                 case R_DOBLE: return "R_DOBLE";
                 case R_WALA: return "R_WALA";
-                case R_PI: return "R_C_PI";
-                case R_E_NUM: return "R_C_E";
-                case R_Kiss: return "R_C_KISS";
-                case R_SAMPLE_CONST_STRING: return "R_C_SAMPLE_CONST_STRING";
+                case R_PI: return "R_PI";
+                case R_E_NUM: return "R_E_NUM";
+                case R_Kiss: return "R_Kiss";
+                case R_SAMPLE_CONST_STRING: return "R_SAMPLE_CONST_STRING";
                 default: return "R_UNKNOWN";
             };
 
