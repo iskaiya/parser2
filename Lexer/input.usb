@@ -1,9 +1,10 @@
 wala ugat() {
-    bilang x = 5    // Missing semicolon
-    bilang y        // Missing assignment and semicolon
-    z = 10;         // Undeclared variable (lexer might catch this)
-    kung (x > 5 {   // Missing )
+    bilang x;    
+    bilang y;   
+    z = 10;
+    kung (x > 5) {
         ani(x);
-    // Missing }
+    }
+
     bilang a = 1;
 }

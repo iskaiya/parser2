@@ -35,7 +35,7 @@ int main() {
     bool success = parse_program(parser);
     
     if (success) {
-        printf("✓ PARSING SUCCESSFUL! No syntax errors found. ✓✓✓\n");
+        printf("PARSING SUCCESSFUL! No syntax errors found. ✓✓✓\n");
         
         // Generate parse trees
         printf("Generating parse trees...\n\n");
@@ -50,30 +50,29 @@ int main() {
         printf("  1. parse_tree_visual.txt         - Tree diagram format\n");
         printf("  2. parse_tree_parenthesized.txt  - Parenthesized notation\n\n");
         
-        // Also print to console (abbreviated)
-        printf("PARSE TREE (Visual Format - First 50 lines):\n");
-        printf("--------------------------------------------\n");
-        FILE* fp = fopen("parse_tree_visual.txt", "r");
-        if (fp) {
-            char line[512];
-            int line_count = 0;
-            while (fgets(line, sizeof(line), fp) && line_count++ < 54) {
-                printf("%s", line);
-            }
-            if (!feof(fp)) {
-                printf("\n... (see parse_tree_visual.txt for complete tree)\n");
-            }
-            fclose(fp);
-        }
         
     } else {
-        printf("✗ PARSING FAILED\n");
+        printf("PARSING FAILED\n");
         printf("\nTotal syntax errors: %d\n\n", parser->error_count);
         printf("Error details:\n");
         printf("--------------\n");
         for (int i = 0; i < parser->error_count; i++) {
             printf("%2d. %s\n", i+1, parser->errors[i]);
         }
+
+        // Generate parse trees
+        printf("Generating parse trees...\n\n");
+        
+        // Visual tree
+        write_parse_tree_to_file("parse_tree_visual.txt", parser->parse_tree, true);
+        
+        // Parenthesized notation
+        write_parse_tree_to_file("parse_tree_parenthesized.txt", parser->parse_tree, false);
+        
+        printf("\nOutput files created:\n");
+        printf("  1. parse_tree_visual.txt         - Tree diagram format\n");
+        printf("  2. parse_tree_parenthesized.txt  - Parenthesized notation\n\n");
+        
     }
     
     printf("PDA Operation Complete\n");
