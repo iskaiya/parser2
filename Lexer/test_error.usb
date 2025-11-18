@@ -1,40 +1,41 @@
 wala ugat() {
-    bilang x = 10
-    bilang y        
+    bilang x = 10;
     
+    bilang y
+    
+    bilang z = 5;
     z = x + y;
     
     kung (x > 5 {
-        ani(x)
+        ani(x);
         y = y + 1;
-    
-    
-    bilang a = 5 + + 3;
-    
-    habang x < 100) {
-        x = x + 10;
     }
     
-    para (bilang i = 0 i < 10; i = i + 1) {
+    habang (x < 100) {
+        x = x + 10
+    }
+    
+    para (bilang i = 0; i < 10 i = i + 1) {
         ani(i);
-    }
-    
-    kung (a > b) 
-        ani(a);
-        b = a;
     }
     
     gawin {
         y = y - 1;
     } habang (y > 0)
     
-    bilang m n o;
+    bilang a = 5 + + 3;
     
     ani(x, y, z;
     
-    tanim(a, b
+    tanim(a, b;
     
-    lutang = 3.14;
+    kung (a > b) 
+        ani(a);
+    }
+    
+    lutang f = 3.14;
     
     x = (5 + 3;
+    
+    bilang m, n o;
 }

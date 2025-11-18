@@ -4,6 +4,7 @@ Token* peek(Parser* p);
 void advance(Parser* p);
 bool check_token(Parser* p, const char* type);
 
+
 // ============ UTILITY FUNCTIONS ============
 
 // Trim whitespace from string
@@ -103,7 +104,8 @@ void parser_error(Parser* p, const char* message) {
 void synchronize(Parser* p, const char* sync_tokens[], int sync_count) {
     printf("    [ERROR RECOVERY] Synchronizing...\n");
     
-    while (peek(p)) {
+    int tokens_skipped = 0;
+    while (peek(p) && tokens_skipped < 50) {  // Prevent infinite loops
         // Check if current token is a sync token
         for (int i = 0; i < sync_count; i++) {
             if (check_token(p, sync_tokens[i])) {
@@ -111,26 +113,61 @@ void synchronize(Parser* p, const char* sync_tokens[], int sync_count) {
                 return;
             }
         }
-        // Also stop at statement terminators
-        if (check_token(p, "D_SEMICOLON") || check_token(p, "D_RBRACE") ||
-            check_token(p, "D_LBRACE")) {
-            printf("    [ERROR RECOVERY] Synchronized at delimiter\n");
+        // Also stop at statement terminators and block delimiters
+        if (check_token(p, "D_SEMICOLON")) {
+            printf("    [ERROR RECOVERY] Synchronized at semicolon\n");
             return;
         }
+        if (check_token(p, "D_RBRACE")) {
+            printf("    [ERROR RECOVERY] Synchronized at closing brace\n");
+            return;
+        }
+        if (check_token(p, "D_LBRACE")) {
+            printf("    [ERROR RECOVERY] Synchronized at opening brace\n");
+            return;
+        }
+        // Stop at statement starters
+        if (check_token(p, "R_BILANG") || check_token(p, "R_LUTANG") ||
+            check_token(p, "R_BULYAN") || check_token(p, "R_KWERDAS") ||
+            check_token(p, "K_KUNG") || check_token(p, "K_PARA") ||
+            check_token(p, "K_HABANG") || check_token(p, "K_GAWIN") ||
+            check_token(p, "K_ANI") || check_token(p, "K_TANIM")) {
+            printf("    [ERROR RECOVERY] Synchronized at statement keyword\n");
+            return;
+        }
+        
         advance(p);
+        tokens_skipped++;
     }
-    printf("    [ERROR RECOVERY] Reached end of tokens\n");
+    printf("    [ERROR RECOVERY] Reached synchronization limit\n");
 }
 
 // ERROR RECOVERY: Skip to end of statement (semicolon or closing brace)
 void skip_to_statement_end(Parser* p) {
     printf("    [ERROR RECOVERY] Skipping to statement end...\n");
-    while (peek(p) && !check_token(p, "D_SEMICOLON") && 
-           !check_token(p, "D_RBRACE")) {
+    int tokens_skipped = 0;
+    while (peek(p) && tokens_skipped < 50) {
+        if (check_token(p, "D_SEMICOLON")) {
+            advance(p); // consume the semicolon
+            printf("    [ERROR RECOVERY] Found semicolon\n");
+            return;
+        }
+        if (check_token(p, "D_RBRACE")) {
+            printf("    [ERROR RECOVERY] Found closing brace (stopping before it)\n");
+            return;
+        }
+        // Also stop at next statement starter
+        if (check_token(p, "R_BILANG") || check_token(p, "R_LUTANG") ||
+            check_token(p, "R_BULYAN") || check_token(p, "R_KWERDAS") ||
+            check_token(p, "K_KUNG") || check_token(p, "K_PARA") ||
+            check_token(p, "K_HABANG") || check_token(p, "K_GAWIN") ||
+            check_token(p, "K_ANI") || check_token(p, "K_TANIM") ||
+            check_token(p, "D_LBRACE")) {
+            printf("    [ERROR RECOVERY] Found next statement\n");
+            return;
+        }
         advance(p);
-    }
-    if (peek(p) && check_token(p, "D_SEMICOLON")) {
-        advance(p); // consume the semicolon
+        tokens_skipped++;
     }
 }
 
@@ -138,14 +175,21 @@ void skip_to_statement_end(Parser* p) {
 void skip_to_closing_brace(Parser* p) {
     printf("    [ERROR RECOVERY] Skipping to closing brace...\n");
     int brace_count = 1;
-    while (peek(p) && brace_count > 0) {
+    int tokens_skipped = 0;
+    while (peek(p) && brace_count > 0 && tokens_skipped < 100) {
         if (check_token(p, "D_LBRACE")) {
             brace_count++;
         } else if (check_token(p, "D_RBRACE")) {
             brace_count--;
+            if (brace_count == 0) {
+                printf("    [ERROR RECOVERY] Found matching closing brace\n");
+                return;
+            }
         }
         advance(p);
+        tokens_skipped++;
     }
+    printf("    [ERROR RECOVERY] Brace matching ended\n");
 }
 
 // Advance to next token (PDA: POP operation)
@@ -233,21 +277,21 @@ bool parse_program(Parser* p) {
     if (peek(p) && (check_token(p, "R_BILANG") || check_token(p, "R_VOID") || 
                      check_token(p, "R_WALA"))) {
         add_child(node, parse_main_function(p));
-    } else if (peek(p) && check_token(p, "R_PANGKAT")) {
-        while (peek(p) && check_token(p, "R_PANGKAT")) {
+    } else if (peek(p) && check_token(p, "K_PANGKAT")) {
+        while (peek(p) && check_token(p, "K_PANGKAT")) {
             add_child(node, parse_class_definition(p));
         }
     } else {
         parser_error(p, "Expected main function or class definition");
         // ERROR RECOVERY: Try to find start of a valid construct
-        const char* sync[] = {"R_BILANG", "R_VOID", "R_WALA", "R_PANGKAT"};
+        const char* sync[] = {"R_BILANG", "R_VOID", "R_WALA", "K_PANGKAT"};
         synchronize(p, sync, 4);
         if (peek(p)) {
             // Try parsing again after recovery
             if (check_token(p, "R_BILANG") || check_token(p, "R_VOID") || 
                 check_token(p, "R_WALA")) {
                 add_child(node, parse_main_function(p));
-            } else if (check_token(p, "R_PANGKAT")) {
+            } else if (check_token(p, "K_PANGKAT")) {
                 add_child(node, parse_class_definition(p));
             }
         }
@@ -371,18 +415,36 @@ ParseTreeNode* parse_statement(Parser* p) {
 ParseTreeNode* parse_declaration(Parser* p) {
     printf("    [PDA PUSH] Parsing Declaration...\n");
     ParseTreeNode* node = create_node("Declaration", NULL);
+
+    int declaration_start_line = p->current_token ? p->current_token->line : 0;
+
     add_child(node, parse_data_type(p));
     add_child(node, parse_identifier_list(p));
     
     // ERROR RECOVERY: Check for semicolon
     if (peek(p) && !check_token(p, "D_SEMICOLON")) {
-        parser_error(p, "Missing semicolon at end of declaration");
-        // Look for semicolon nearby
-        const char* sync[] = {"D_SEMICOLON"};
-        synchronize(p, sync, 1);
+        char msg[256];
+        sprintf(msg, "Missing semicolon at end of declaration (started on line %d)", 
+                declaration_start_line);
+        parser_error(p, msg);        
+        
+        // Look for semicolon or next statement
+        const char* sync[] = {"D_SEMICOLON", "R_BILANG", "R_LUTANG", "R_BULYAN", 
+                               "R_KWERDAS", "L_IDENTIFIER", "K_KUNG", "K_PARA", 
+                               "K_HABANG", "K_GAWIN", "K_ANI", "K_TANIM", "D_RBRACE"};
+        synchronize(p, sync, 13);
+        
+        // If we found a semicolon, consume it
+        if (peek(p) && check_token(p, "D_SEMICOLON")) {
+            add_child(node, match(p, "D_SEMICOLON"));
+        } else {
+            // No semicolon found, add error node and continue
+            add_child(node, create_node("ERROR", "missing_semicolon"));
+        }
+    } else {
+        add_child(node, match(p, "D_SEMICOLON"));
     }
-    
-    add_child(node, match(p, "D_SEMICOLON"));
+
     printf("    [PDA POP] Declaration complete\n");
     return node;
 }
@@ -417,20 +479,37 @@ ParseTreeNode* parse_identifier_list(Parser* p) {
 
 ParseTreeNode* parse_identifier_tail(Parser* p) {
     ParseTreeNode* node = create_node("IdentifierTail", NULL);
+    
     if (peek(p) && check_token(p, "D_COMMA")) {
         add_child(node, match(p, "D_COMMA"));
         add_child(node, match(p, "L_IDENTIFIER"));
         
-        // Check for optional initialization for this identifier too
+        // Check for optional initialization for this identifier
         if (peek(p) && check_token(p, "O_ASSIGN")) {
             add_child(node, match(p, "O_ASSIGN"));
             add_child(node, parse_expression(p));
         }
         
         add_child(node, parse_identifier_tail(p));
-    } else {
+    } 
+    // ERROR RECOVERY: Check if there's an identifier without comma (missing comma error)
+    else if (peek(p) && check_token(p, "L_IDENTIFIER")) {
+        parser_error(p, "Missing comma between identifiers in declaration");
+        add_child(node, create_node("ERROR", "missing_comma"));
+        add_child(node, match(p, "L_IDENTIFIER"));
+        
+        // Check for optional initialization
+        if (peek(p) && check_token(p, "O_ASSIGN")) {
+            add_child(node, match(p, "O_ASSIGN"));
+            add_child(node, parse_expression(p));
+        }
+        
+        add_child(node, parse_identifier_tail(p));
+    }
+    else {
         add_child(node, create_node("ε", "empty"));
     }
+    
     return node;
 }
 
@@ -439,9 +518,11 @@ ParseTreeNode* parse_identifier_tail(Parser* p) {
 ParseTreeNode* parse_assignment(Parser* p) {
     printf("    [PDA PUSH] Parsing Assignment...\n");
     ParseTreeNode* node = create_node("Assignment", NULL);
+    
+    int assign_start_line = p->current_token ? p->current_token->line : 0;
+    
     add_child(node, match(p, "L_IDENTIFIER"));
     
-    // ERROR RECOVERY: Check for assignment operator
     if (peek(p) && !check_token(p, "O_ASSIGN")) {
         parser_error(p, "Expected '=' in assignment");
         const char* sync[] = {"O_ASSIGN"};
@@ -449,16 +530,28 @@ ParseTreeNode* parse_assignment(Parser* p) {
     }
     
     add_child(node, match(p, "O_ASSIGN"));
+    
+    // Parse expression - this will handle the parenthesis checking
     add_child(node, parse_expression(p));
     
-    // ERROR RECOVERY: Check for semicolon
+    // Check for semicolon
     if (peek(p) && !check_token(p, "D_SEMICOLON")) {
-        parser_error(p, "Missing semicolon at end of assignment");
+        char msg[256];
+        sprintf(msg, "Missing semicolon at end of assignment (line %d)", assign_start_line);
+        parser_error(p, msg);
+        
         const char* sync[] = {"D_SEMICOLON"};
         synchronize(p, sync, 1);
+        
+        if (peek(p) && check_token(p, "D_SEMICOLON")) {
+            add_child(node, match(p, "D_SEMICOLON"));
+        } else {
+            add_child(node, create_node("ERROR", "missing_semicolon"));
+        }
+    } else {
+        add_child(node, match(p, "D_SEMICOLON"));
     }
     
-    add_child(node, match(p, "D_SEMICOLON"));
     printf("    [PDA POP] Assignment complete\n");
     return node;
 }
@@ -472,14 +565,22 @@ ParseTreeNode* parse_expression(Parser* p) {
 
 ParseTreeNode* parse_expression_tail(Parser* p) {
     ParseTreeNode* node = create_node("ExpressionTail", NULL);
+    
     if (peek(p) && (check_token(p, "O_PLUS") || check_token(p, "O_MINUS"))) {
         add_child(node, create_node(p->current_token->type, p->current_token->lexeme));
         advance(p);
         add_child(node, parse_term(p));
         add_child(node, parse_expression_tail(p));
-    } else {
+    } 
+    // Check if we hit a semicolon while still in expression (unmatched parenthesis)
+    else if (peek(p) && check_token(p, "D_SEMICOLON")) {
+        // This is normal - expression ends
         add_child(node, create_node("ε", "empty"));
     }
+    else {
+        add_child(node, create_node("ε", "empty"));
+    }
+    
     return node;
 }
 
@@ -506,55 +607,70 @@ ParseTreeNode* parse_term_tail(Parser* p) {
 ParseTreeNode* parse_factor(Parser* p) {
     ParseTreeNode* node = create_node("Factor", NULL);
     
-    // Handle identifiers
     if (peek(p) && check_token(p, "L_IDENTIFIER")) {
         add_child(node, match(p, "L_IDENTIFIER"));
     } 
-    // Handle integer literals
     else if (peek(p) && check_token(p, "L_BILANG_LITERAL")) {
         add_child(node, match(p, "L_BILANG_LITERAL"));
     } 
-    // Handle float literals
     else if (peek(p) && check_token(p, "L_LUTANG_LITERAL")) {
         add_child(node, match(p, "L_LUTANG_LITERAL"));
     }
-    // Handle string literals
     else if (peek(p) && check_token(p, "L_KWERDAS_LITERAL")) {
         add_child(node, match(p, "L_KWERDAS_LITERAL"));
     }
-    // Handle boolean literals (tama/mali)
     else if (peek(p) && (check_token(p, "R_TAMA") || check_token(p, "R_MALI"))) {
         add_child(node, create_node(p->current_token->type, p->current_token->lexeme));
         advance(p);
     }
-    // Handle constants (pi)
-    else if (peek(p) && (check_token(p, "R_PI") || check_token(p, "R_E_NUM") || 
-                        check_token(p, "R_Kiss") || check_token(p, "R_SAMPLE_CONST_STRING" ))) {
-        add_child(node, create_node(p->current_token->type, p->current_token->lexeme));
+    else if (peek(p) && (check_token(p, "R_PI") || check_token(p, "R_E_NUM"),
+                        check_token(p, "R_Kiss") || check_token(p, "R_SAMPLE_CONST_STRING"))) {
+        add_child(node,  create_node(p->current_token->type, p->current_token->lexeme));
     }
-    // Handle parenthesized expressions
     else if (peek(p) && check_token(p, "D_LPAREN")) {
+        int paren_line = p->current_token->line;
         add_child(node, match(p, "D_LPAREN"));
         add_child(node, parse_expression(p));
         
         // ERROR RECOVERY: Check for closing parenthesis
         if (peek(p) && !check_token(p, "D_RPAREN")) {
-            parser_error(p, "Missing closing parenthesis ')' in expression");
-            const char* sync[] = {"D_RPAREN"};
-            synchronize(p, sync, 1);
+            char msg[256];
+            sprintf(msg, "Missing closing parenthesis ')' for '(' on line %d", paren_line);
+            parser_error(p, msg);
+            
+            // Look for closing paren or semicolon
+            const char* sync[] = {"D_RPAREN", "D_SEMICOLON"};
+            synchronize(p, sync, 2);
+            
+            if (peek(p) && check_token(p, "D_RPAREN")) {
+                add_child(node, match(p, "D_RPAREN"));
+            } else {
+                add_child(node, create_node("ERROR", "missing_rparen"));
+                printf("    [ERROR RECOVERY] Could not find closing paren, continuing...\n");
+            }
+        } else {
+            add_child(node, match(p, "D_RPAREN"));
         }
-        
-        add_child(node, match(p, "D_RPAREN"));
     } 
+    else if (peek(p) && (check_token(p, "O_PLUS") || check_token(p, "O_MINUS") ||
+                          check_token(p, "O_MULTIPLY") || check_token(p, "O_DIVIDE"))) {
+        parser_error(p, "Unexpected operator in expression (possible double operator)");
+        add_child(node, create_node("ERROR", "unexpected_operator"));
+        advance(p);
+        
+        if (peek(p) && !check_token(p, "D_SEMICOLON") && !check_token(p, "D_RPAREN")) {
+            return parse_factor(p);
+        }
+    }
     else {
         parser_error(p, "Expected identifier, literal, constant, or '(' in expression");
-        // ERROR RECOVERY: Create error node
         add_child(node, create_node("ERROR", "invalid_factor"));
-        if (peek(p)) advance(p); // Skip problematic token
+        if (peek(p) && !check_token(p, "D_SEMICOLON") && !check_token(p, "D_RPAREN")) {
+            advance(p);
+        }
     }
     return node;
 }
-
 
 // ============ CONDITIONALS ============
 
@@ -570,15 +686,40 @@ ParseTreeNode* parse_conditional(Parser* p) {
         parser_error(p, "Missing ')' after condition");
         const char* sync[] = {"D_RPAREN", "D_LBRACE"};
         synchronize(p, sync, 2);
+
+        if (peek(p) && check_token(p, "D_RPAREN")) {
+            add_child(node, match(p, "D_RPAREN"));
+        } else {
+            add_child(node, create_node("ERROR", "missing_rparen"));
+        }
+    } else {
+        add_child(node, match(p, "D_RPAREN"));
     }
-    
-    add_child(node, match(p, "D_RPAREN"));
     
     // ERROR RECOVERY: Check for opening brace
     if (peek(p) && !check_token(p, "D_LBRACE")) {
         parser_error(p, "Missing '{' after condition");
-        const char* sync[] = {"D_LBRACE"};
-        synchronize(p, sync, 1);
+        
+        // Skip until we find a statement or closing brace
+        // Parse the orphan statement but don't expect braces
+        add_child(node, create_node("ERROR", "missing_lbrace"));
+        
+        // If the next token is a statement starter, parse ONE statement only
+        if (peek(p) && (check_token(p, "K_ANI") || check_token(p, "K_TANIM") || 
+                         check_token(p, "L_IDENTIFIER") || check_token(p, "R_BILANG"))) {
+            add_child(node, parse_statement(p));
+        }
+        
+        // If there's a closing brace, consume it
+        if (peek(p) && check_token(p, "D_RBRACE")) {
+            add_child(node, match(p, "D_RBRACE"));
+        } else {
+            add_child(node, create_node("ERROR", "missing_rbrace"));
+        }
+        
+        add_child(node, parse_conditional_tail(p));
+        printf("    [PDA POP] Conditional complete (with errors)\n");
+        return node;
     }
     
     add_child(node, match(p, "D_LBRACE"));
@@ -587,10 +728,18 @@ ParseTreeNode* parse_conditional(Parser* p) {
     // ERROR RECOVERY: Check for closing brace
     if (peek(p) && !check_token(p, "D_RBRACE")) {
         parser_error(p, "Missing '}' at end of if block");
-        skip_to_closing_brace(p);
+        const char* sync[] = {"D_RBRACE", "K_KUNDI", "K_KUNDIMAN"};
+        synchronize(p, sync, 3);
+        
+        if (peek(p) && check_token(p, "D_RBRACE")) {
+            add_child(node, match(p, "D_RBRACE"));
+        } else {
+            add_child(node, create_node("ERROR", "missing_rbrace"));
+        }
+    } else {
+        add_child(node, match(p, "D_RBRACE"));
     }
     
-    add_child(node, match(p, "D_RBRACE"));
     add_child(node, parse_conditional_tail(p));
     printf("    [PDA POP] Conditional complete\n");
     return node;
@@ -657,33 +806,140 @@ ParseTreeNode* parse_for_loop(Parser* p) {
     printf("    [PDA PUSH] Parsing For Loop...\n");
     ParseTreeNode* node = create_node("ForLoop", NULL);
     add_child(node, match(p, "K_PARA"));
+
+    if (peek(p) && !check_token(p, "D_LPAREN")) {
+        parser_error(p, "Missing '(' after 'para'");
+        const char* sync[] = {"D_LPAREN"};
+        synchronize(p, sync, 1);
+    }
+
     add_child(node, match(p, "D_LPAREN"));
     
+    // Parse initialization
     if (check_token(p, "R_BILANG") || check_token(p, "R_LUTANG") ||
         check_token(p, "R_BULYAN") || check_token(p, "R_KWERDAS")) {
         add_child(node, parse_declaration(p));
-    } else {
+    } else if (peek(p) && check_token(p, "L_IDENTIFIER")) {
         ParseTreeNode* assign = create_node("Assignment", NULL);
         add_child(assign, match(p, "L_IDENTIFIER"));
         add_child(assign, match(p, "O_ASSIGN"));
         add_child(assign, parse_expression(p));
         add_child(assign, match(p, "D_SEMICOLON"));
         add_child(node, assign);
+    } else {
+        parser_error(p, "Expected initialization in for loop");
+        add_child(node, create_node("ERROR", "missing_init"));
+    }
+
+    // Parse condition - Try to detect if semicolon is missing
+    ParseTreeNode* condition = create_node("BooleanExpression", NULL);
+    
+    // Parse left side of condition
+    if (peek(p) && check_token(p, "L_IDENTIFIER")) {
+        add_child(condition, parse_expression(p));
+        
+        // Check for relational operator
+        if (peek(p) && (check_token(p, "O_EQUAL") || check_token(p, "O_NOT_EQUAL") ||
+                         check_token(p, "O_GREATER") || check_token(p, "O_LESS") ||
+                         check_token(p, "O_GREATER_EQ") || check_token(p, "O_LESS_EQ"))) {
+            add_child(condition, parse_relop(p));
+            add_child(condition, parse_expression(p));
+        } else {
+            parser_error(p, "Expected relational operator in condition");
+            add_child(condition, create_node("ERROR", "missing_relop"));
+        }
+    } else {
+        parser_error(p, "Expected condition in for loop");
+        add_child(condition, create_node("ERROR", "missing_condition"));
     }
     
-    add_child(node, parse_boolean_expression(p));
-    add_child(node, match(p, "D_SEMICOLON"));
+    add_child(node, condition);
     
-    ParseTreeNode* incr = create_node("Assignment", NULL);
-    add_child(incr, match(p, "L_IDENTIFIER"));
-    add_child(incr, match(p, "O_ASSIGN"));
-    add_child(incr, parse_expression(p));
-    add_child(node, incr);
+    // Check for semicolon after condition
+    if (peek(p) && !check_token(p, "D_SEMICOLON")) {
+        parser_error(p, "Missing ';' after for loop condition");
+        
+        // Try to detect if we're already at the increment part
+        // If we see an identifier that looks like increment (not relop), we're missing semicolon
+        if (peek(p) && check_token(p, "L_IDENTIFIER")) {
+            printf("    [ERROR RECOVERY] Detected missing semicolon before increment\n");
+            // Don't skip anything, just note the error and continue
+            add_child(node, create_node("ERROR", "missing_semicolon"));
+        } else {
+            // Otherwise try to find semicolon
+            const char* sync[] = {"D_SEMICOLON"};
+            synchronize(p, sync, 1);
+            if (peek(p) && check_token(p, "D_SEMICOLON")) {
+                add_child(node, match(p, "D_SEMICOLON"));
+            } else {
+                add_child(node, create_node("ERROR", "missing_semicolon"));
+            }
+        }
+    } else {
+        add_child(node, match(p, "D_SEMICOLON"));
+    }
     
-    add_child(node, match(p, "D_RPAREN"));
-    add_child(node, match(p, "D_LBRACE"));
-    add_child(node, parse_statement_list(p));
-    add_child(node, match(p, "D_RBRACE"));
+    // Parse increment
+    if (peek(p) && check_token(p, "L_IDENTIFIER")) {
+        ParseTreeNode* incr = create_node("Assignment", NULL);
+        add_child(incr, match(p, "L_IDENTIFIER"));
+        
+        if (peek(p) && check_token(p, "O_ASSIGN")) {
+            add_child(incr, match(p, "O_ASSIGN"));
+            add_child(incr, parse_expression(p));
+        } else {
+            parser_error(p, "Expected '=' in for loop increment");
+            add_child(incr, create_node("ERROR", "missing_assign"));
+        }
+        add_child(node, incr);
+    } else if (peek(p) && !check_token(p, "D_RPAREN")) {
+        parser_error(p, "Expected increment expression in for loop");
+        add_child(node, create_node("ERROR", "missing_increment"));
+        // Skip to closing paren
+        const char* sync[] = {"D_RPAREN"};
+        synchronize(p, sync, 1);
+    } else {
+        // Empty increment is technically ok, just add placeholder
+        add_child(node, create_node("EmptyIncrement", ""));
+    }
+    
+    // Check for closing parenthesis
+    if (peek(p) && !check_token(p, "D_RPAREN")) {
+        parser_error(p, "Missing ')' in for loop header");
+        const char* sync[] = {"D_RPAREN", "D_LBRACE"};
+        synchronize(p, sync, 2);
+    }
+    
+    if (peek(p) && check_token(p, "D_RPAREN")) {
+        add_child(node, match(p, "D_RPAREN"));
+    } else {
+        add_child(node, create_node("ERROR", "missing_rparen"));
+    }
+    
+    // Parse body
+    if (peek(p) && !check_token(p, "D_LBRACE")) {
+        parser_error(p, "Missing '{' for for loop body");
+        const char* sync[] = {"D_LBRACE"};
+        synchronize(p, sync, 1);
+    }
+    
+    if (peek(p) && check_token(p, "D_LBRACE")) {
+        add_child(node, match(p, "D_LBRACE"));
+        add_child(node, parse_statement_list(p));
+        
+        if (peek(p) && !check_token(p, "D_RBRACE")) {
+            parser_error(p, "Missing '}' at end of for loop");
+            const char* sync[] = {"D_RBRACE"};
+            synchronize(p, sync, 1);
+        }
+        
+        if (peek(p) && check_token(p, "D_RBRACE")) {
+            add_child(node, match(p, "D_RBRACE"));
+        } else {
+            add_child(node, create_node("ERROR", "missing_rbrace"));
+        }
+    }
+    
     printf("    [PDA POP] For Loop complete\n");
     return node;
 }
@@ -729,14 +985,61 @@ ParseTreeNode* parse_do_while_loop(Parser* p) {
     printf("    [PDA PUSH] Parsing Do-While Loop...\n");
     ParseTreeNode* node = create_node("DoWhileLoop", NULL);
     add_child(node, match(p, "K_GAWIN"));
+    
+    // ERROR RECOVERY: Check for opening brace
+    if (peek(p) && !check_token(p, "D_LBRACE")) {
+        parser_error(p, "Missing '{' after 'gawin'");
+        const char* sync[] = {"D_LBRACE"};
+        synchronize(p, sync, 1);
+    }
+    
     add_child(node, match(p, "D_LBRACE"));
     add_child(node, parse_statement_list(p));
+    
+    // ERROR RECOVERY: Check for closing brace
+    if (peek(p) && !check_token(p, "D_RBRACE")) {
+        parser_error(p, "Missing '}' in do-while loop");
+        const char* sync[] = {"D_RBRACE", "K_HABANG"};
+        synchronize(p, sync, 2);
+    }
+    
     add_child(node, match(p, "D_RBRACE"));
+    
+    // ERROR RECOVERY: Check for 'habang' keyword
+    if (peek(p) && !check_token(p, "K_HABANG")) {
+        parser_error(p, "Expected 'habang' after do-while body");
+        const char* sync[] = {"K_HABANG"};
+        synchronize(p, sync, 1);
+    }
+    
     add_child(node, match(p, "K_HABANG"));
     add_child(node, match(p, "D_LPAREN"));
     add_child(node, parse_boolean_expression(p));
+    
+    // ERROR RECOVERY: Check for closing parenthesis
+    if (peek(p) && !check_token(p, "D_RPAREN")) {
+        parser_error(p, "Missing ')' in do-while condition");
+        const char* sync[] = {"D_RPAREN", "D_SEMICOLON"};
+        synchronize(p, sync, 2);
+    }
+    
     add_child(node, match(p, "D_RPAREN"));
-    add_child(node, match(p, "D_SEMICOLON"));
+    
+    // ERROR RECOVERY: Check for semicolon - THIS IS THE MISSING PART
+    if (peek(p) && !check_token(p, "D_SEMICOLON")) {
+        parser_error(p, "Missing ';' at end of do-while statement");
+        const char* sync[] = {"D_SEMICOLON"};
+        synchronize(p, sync, 1);
+        
+        if (peek(p) && check_token(p, "D_SEMICOLON")) {
+            add_child(node, match(p, "D_SEMICOLON"));
+        } else {
+            add_child(node, create_node("ERROR", "missing_semicolon"));
+        }
+    } else {
+        add_child(node, match(p, "D_SEMICOLON"));
+    }
+    
     printf("    [PDA POP] Do-While Loop complete\n");
     return node;
 }
@@ -747,13 +1050,51 @@ ParseTreeNode* parse_print(Parser* p) {
     printf("    [PDA PUSH] Parsing Print...\n");
     ParseTreeNode* node = create_node("Print", NULL);
     add_child(node, match(p, "K_ANI"));
+    
+    // ERROR RECOVERY: Check for opening parenthesis
+    if (peek(p) && !check_token(p, "D_LPAREN")) {
+        parser_error(p, "Missing '(' after 'ani'");
+        const char* sync[] = {"D_LPAREN"};
+        synchronize(p, sync, 1);
+    }
+    
     add_child(node, match(p, "D_LPAREN"));
     add_child(node, parse_print_args(p));
-    add_child(node, match(p, "D_RPAREN"));
-    add_child(node, match(p, "D_SEMICOLON"));
+    
+    // ERROR RECOVERY: Check for closing parenthesis
+    if (peek(p) && !check_token(p, "D_RPAREN")) {
+        parser_error(p, "Missing ')' in print statement");
+        const char* sync[] = {"D_RPAREN", "D_SEMICOLON"};
+        synchronize(p, sync, 2);
+        
+        if (peek(p) && check_token(p, "D_RPAREN")) {
+            add_child(node, match(p, "D_RPAREN"));
+        } else {
+            add_child(node, create_node("ERROR", "missing_rparen"));
+        }
+    } else {
+        add_child(node, match(p, "D_RPAREN"));
+    }
+    
+    // ERROR RECOVERY: Check for semicolon
+    if (peek(p) && !check_token(p, "D_SEMICOLON")) {
+        parser_error(p, "Missing ';' at end of print statement");
+        const char* sync[] = {"D_SEMICOLON"};
+        synchronize(p, sync, 1);
+        
+        if (peek(p) && check_token(p, "D_SEMICOLON")) {
+            add_child(node, match(p, "D_SEMICOLON"));
+        } else {
+            add_child(node, create_node("ERROR", "missing_semicolon"));
+        }
+    } else {
+        add_child(node, match(p, "D_SEMICOLON"));
+    }
+    
     printf("    [PDA POP] Print complete\n");
     return node;
 }
+
 
 ParseTreeNode* parse_print_args(Parser* p) {
     ParseTreeNode* node = create_node("PrintArgs", NULL);
@@ -769,10 +1110,47 @@ ParseTreeNode* parse_scan(Parser* p) {
     printf("    [PDA PUSH] Parsing Scan...\n");
     ParseTreeNode* node = create_node("Scan", NULL);
     add_child(node, match(p, "K_TANIM"));
+    
+    // ERROR RECOVERY: Check for opening parenthesis
+    if (peek(p) && !check_token(p, "D_LPAREN")) {
+        parser_error(p, "Missing '(' after 'tanim'");
+        const char* sync[] = {"D_LPAREN"};
+        synchronize(p, sync, 1);
+    }
+    
     add_child(node, match(p, "D_LPAREN"));
     add_child(node, parse_scan_args(p));
-    add_child(node, match(p, "D_RPAREN"));
-    add_child(node, match(p, "D_SEMICOLON"));
+    
+    // ERROR RECOVERY: Check for closing parenthesis
+    if (peek(p) && !check_token(p, "D_RPAREN")) {
+        parser_error(p, "Missing ')' in scan statement");
+        const char* sync[] = {"D_RPAREN", "D_SEMICOLON"};
+        synchronize(p, sync, 2);
+        
+        if (peek(p) && check_token(p, "D_RPAREN")) {
+            add_child(node, match(p, "D_RPAREN"));
+        } else {
+            add_child(node, create_node("ERROR", "missing_rparen"));
+        }
+    } else {
+        add_child(node, match(p, "D_RPAREN"));
+    }
+    
+    // ERROR RECOVERY: Check for semicolon
+    if (peek(p) && !check_token(p, "D_SEMICOLON")) {
+        parser_error(p, "Missing ';' at end of scan statement");
+        const char* sync[] = {"D_SEMICOLON"};
+        synchronize(p, sync, 1);
+        
+        if (peek(p) && check_token(p, "D_SEMICOLON")) {
+            add_child(node, match(p, "D_SEMICOLON"));
+        } else {
+            add_child(node, create_node("ERROR", "missing_semicolon"));
+        }
+    } else {
+        add_child(node, match(p, "D_SEMICOLON"));
+    }
+    
     printf("    [PDA POP] Scan complete\n");
     return node;
 }
@@ -792,7 +1170,7 @@ ParseTreeNode* parse_scan_args(Parser* p) {
 ParseTreeNode* parse_class_definition(Parser* p) {
     printf("  [PDA PUSH] Parsing Class Definition...\n");
     ParseTreeNode* node = create_node("ClassDefinition", NULL);
-    add_child(node, match(p, "R_PANGKAT"));
+    add_child(node, match(p, "K_PANGKAT"));
     add_child(node, match(p, "L_IDENTIFIER"));
     add_child(node, match(p, "D_LBRACE"));
     add_child(node, match(p, "D_RBRACE"));
@@ -911,6 +1289,7 @@ void write_parse_tree_to_file(const char* filename, ParseTreeNode* tree, bool is
     
     fprintf(fp, "PARSE TREE (%s FORMAT)\n", is_visual ? "VISUAL" : "PARENTHESIZED");
     fprintf(fp, "Generated by Recursive Descent Parser (Pushdown Automaton)\n");
+    fprintf(fp, "======================================================================\n\n");
     
     if (is_visual) {
         char prefix[512] = "";
